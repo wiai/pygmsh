@@ -258,8 +258,8 @@ class Geometry(object):
         # TODO assert that the transformation preserves circles
         if R is not None:
             X = [numpy.dot(R, x) + x0 for x in X]
-
-        X += x0
+        else:
+            X += x0
 
         # Add Gmsh Points.
         p = [self.add_point(x, lcar) for x in X]
@@ -505,7 +505,7 @@ class Geometry(object):
 
     def add_rectangle(
             self, xmin, xmax, ymin, ymax, z, lcar,
-            holes=None, make_surface=True
+            holes=None, make_surface=True,R=None
             ):
         return self.add_polygon([
             [xmin, ymin, z],
@@ -515,7 +515,8 @@ class Geometry(object):
             ],
             lcar,
             holes=holes,
-            make_surface=make_surface
+            make_surface=make_surface,
+            R=R
             )
 
     class Polygon(object):
@@ -525,11 +526,19 @@ class Geometry(object):
             self.lcar = lcar
             return
 
-    def add_polygon(self, X, lcar, holes=None, make_surface=True):
+    def add_polygon(self, X, lcar, holes=None, make_surface=True,
+            R=None):
+        
+        if R is not None:
+            X = R @ numpy.array(X).T
+            X = X.T
+
         if holes is None:
             holes = []
         else:
             assert make_surface
+
+
 
         # Create points.
         p = [self.add_point(x, lcar) for x in X]
@@ -641,8 +650,25 @@ class Geometry(object):
             x0, x1, y0, y1, z0, z1,
             lcar,
             with_volume=True,
-            holes=None
+            holes=None,
+            R=None,
+            t=None
             ):
+
+        # corner points of box
+        corners = [[x1, y1, z1],
+            [x1, y1, z0], 
+            [x1, y0, z1], 
+            [x1, y0, z0], 
+            [x0, y1, z1], 
+            [x0, y1, z0], 
+            [x0, y0, z1], 
+            [x0, y0, z0]]
+        # apply rotation matrix and translation vector
+        if R is not None:
+            corners = (R @ numpy.array(corners).T).T
+        if t is not None:
+            corners = numpy.array(corners) + numpy.array(t)
 
         if holes is None:
             holes = []
@@ -651,14 +677,14 @@ class Geometry(object):
             assert with_volume
 
         # Define corner points.
-        p = [self.add_point([x1, y1, z1], lcar=lcar),
-             self.add_point([x1, y1, z0], lcar=lcar),
-             self.add_point([x1, y0, z1], lcar=lcar),
-             self.add_point([x1, y0, z0], lcar=lcar),
-             self.add_point([x0, y1, z1], lcar=lcar),
-             self.add_point([x0, y1, z0], lcar=lcar),
-             self.add_point([x0, y0, z1], lcar=lcar),
-             self.add_point([x0, y0, z0], lcar=lcar),
+        p = [self.add_point(corners[0], lcar=lcar),
+             self.add_point(corners[1], lcar=lcar),
+             self.add_point(corners[2], lcar=lcar),
+             self.add_point(corners[3], lcar=lcar),
+             self.add_point(corners[4], lcar=lcar),
+             self.add_point(corners[5], lcar=lcar),
+             self.add_point(corners[6], lcar=lcar),
+             self.add_point(corners[7], lcar=lcar),
              ]
         # Define edges.
         e = [self.add_line(p[0], p[1]),
@@ -855,6 +881,19 @@ class Geometry(object):
         self.add_comment(76*'-' + '\n')
         return vol
 
+    def add_cylinder(
+            self,
+            outer_radius, length,
+            R=numpy.eye(3),
+            x0=numpy.array([0.0, 0.0, 0.0]),
+            lcar=1.0):
+
+        return self._add_cylinder_by_circle_extrusion(
+            outer_radius, length,
+            R=R,
+            x0=x0,
+            lcar=lcar)
+
     def add_pipe(
             self,
             outer_radius, inner_radius, length,
@@ -973,6 +1012,35 @@ class Geometry(object):
             translation_axis=numpy.dot(R, [length, 0, 0])
             )
         return vol
+
+    def _add_cylinder_by_circle_extrusion(
+            self,
+            outer_radius, length,
+            R=numpy.eye(3),
+            x0=numpy.array([0.0, 0.0, 0.0]),
+            lcar=0.1
+            ):
+        '''Hollow cylinder.
+        Define a ring, extrude it by translation.
+        '''
+        # Define ring which to Extrude by translation.
+        Rc = numpy.array([
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0]
+            ])
+        circ = self.add_circle(
+            x0, outer_radius, lcar, R=numpy.dot(R, Rc),
+            make_surface=True
+            )
+
+        # Now Extrude the ring surface.
+        top, vol, extruded = self.extrude(
+            circ.plane_surface,
+            translation_axis=numpy.dot(R, [length, 0, 0])
+            )
+        return top, vol, extruded, circ.plane_surface
+
 
     def translate(self, input_entity, vector):
         """Translates input_entity itself by vector.
