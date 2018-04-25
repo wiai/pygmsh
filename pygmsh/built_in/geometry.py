@@ -888,11 +888,31 @@ class Geometry(object):
             x0=numpy.array([0.0, 0.0, 0.0]),
             lcar=1.0):
 
-        return self._add_cylinder_by_circle_extrusion(
-            outer_radius, length,
-            R=R,
-            x0=x0,
-            lcar=lcar)
+        # place the bottom circle so that the extruded
+        # top surface will end up at given position
+        circ_bottom = self.add_circle(
+            x0-numpy.dot(R, [0, 0, length]), outer_radius, lcar, R=R,
+            make_surface=True)
+
+        # extrude
+        top, vol, jacket = self.extrude(
+            circ_bottom.plane_surface,
+            translation_axis=numpy.dot(R, [0, 0, length])
+            )
+
+        class Cylinder(object):
+            def __init__(
+                    self, bottom, top, jacket, volume, lcar 
+                    ):
+                self.top = top
+                self.bottom = bottom
+                self.jacket = jacket
+                self.lcar = lcar
+                self.volume = volume
+                return
+
+        return Cylinder(circ_bottom.plane_surface, top, jacket, vol, lcar)
+
 
     def add_pipe(
             self,
@@ -1012,35 +1032,6 @@ class Geometry(object):
             translation_axis=numpy.dot(R, [length, 0, 0])
             )
         return vol
-
-    def _add_cylinder_by_circle_extrusion(
-            self,
-            outer_radius, length,
-            R=numpy.eye(3),
-            x0=numpy.array([0.0, 0.0, 0.0]),
-            lcar=0.1
-            ):
-        '''Hollow cylinder.
-        Define a ring, extrude it by translation.
-        '''
-        # Define ring which to Extrude by translation.
-        Rc = numpy.array([
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0]
-            ])
-        circ = self.add_circle(
-            x0, outer_radius, lcar, R=numpy.dot(R, Rc),
-            make_surface=True
-            )
-
-        # Now Extrude the ring surface.
-        top, vol, extruded = self.extrude(
-            circ.plane_surface,
-            translation_axis=numpy.dot(R, [length, 0, 0])
-            )
-        return top, vol, extruded, circ.plane_surface
-
 
     def translate(self, input_entity, vector):
         """Translates input_entity itself by vector.
