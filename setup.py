@@ -28,19 +28,17 @@ setup(
     long_description_content_type='text/markdown',
     url=about['__website__'],
     project_urls={
-      'Documentation': 'https://pygmsh.readthedocs.org/en/latest',
-      'Issues': 'https://github.com/nschloe/pygmsh/issues',
+      'Documentation': 'https://pygmsh.readthedocs.org/en/latest'
       },
     license=about['__license__'],
     platforms='any',
     install_requires=[
         'meshio',
         'numpy >= 1.9',
-        'voropy',
         ],
     extras_require={
-        'all': ['pipdate'],
-        'update': ['pipdate'],
+        'all': ['pipdate >=0.2.0, <0.3.0'],
+        'update': ['pipdate >=0.2.0, <0.3.0'],
         },
     classifiers=[
         about['__status__'],

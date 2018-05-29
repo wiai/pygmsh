@@ -4,19 +4,18 @@ from .. import built_in
 
 
 class VolumeBase(built_in.volume_base.VolumeBase):
+    """
+    Increments the Volume ID every time a new volume object
+    is created. Inherits from built_in VolumeBase.
+    """
+
     _ID = 0
     dimension = 3
 
     def __init__(self, is_list=False, id0=None):
-        super(VolumeBase, self).__init__()
+        super(VolumeBase, self).__init__(id0=id0)
 
-        isinstance(id0, str)
         self.is_list = is_list
-        if id0:
-            self.id = id0
-        else:
-            self.id = 'v{}'.format(VolumeBase._ID)
-            VolumeBase._ID += 1
         if is_list:
             self.id += '[]'
         return

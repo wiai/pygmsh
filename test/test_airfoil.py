@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 import numpy
+
 import pygmsh
 
 from helpers import compute_volume
@@ -147,10 +148,10 @@ def test():
         char_length,
         holes=[airfoil]
         )
-    geom.add_raw_code('Recombine Surface {%s};' % polygon.surface.id)
+    geom.add_raw_code('Recombine Surface {{{}}};'.format(polygon.surface.id))
 
     ref = 10.525891646546
-    points, cells, _, _, _ = pygmsh.generate_mesh(geom)
+    points, cells, _, _, _ = pygmsh.generate_mesh(geom, remove_faces=True)
     assert abs(compute_volume(points, cells) - ref) < 1.0e-2 * ref
     return points, cells
 

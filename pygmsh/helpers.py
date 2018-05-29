@@ -9,7 +9,6 @@ import tempfile
 import numpy
 
 import meshio
-import voropy
 
 
 def rotation_matrix(u, theta):
@@ -69,11 +68,10 @@ def _is_flat(X, tol=1.0e-15):
 
 def _get_gmsh_exe():
     macos_gmsh_location = '/Applications/Gmsh.app/Contents/MacOS/gmsh'
-    if os.path.isfile(macos_gmsh_location):
-        gmsh_executable = macos_gmsh_location
-    else:
-        gmsh_executable = 'gmsh'
-    return gmsh_executable
+    return (
+        macos_gmsh_location if os.path.isfile(macos_gmsh_location)
+        else 'gmsh'
+        )
 
 
 def get_gmsh_major_version(gmsh_exe=_get_gmsh_exe()):
@@ -85,19 +83,22 @@ def get_gmsh_major_version(gmsh_exe=_get_gmsh_exe()):
     return int(ex[0])
 
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches, too-many-statements
 def generate_mesh(
         geo_object,
-        optimize=True,
-        num_lloyd_steps=1000,
         verbose=True,
         dim=3,
         prune_vertices=True,
+        remove_faces=False,
         gmsh_path=None,
-        geom_order=1,
+        extra_gmsh_arguments=None,
         # for debugging purposes:
-        geo_filename=None
+        geo_filename=None,
+        fast_conversion=False,
         ):
+    if extra_gmsh_arguments is None:
+        extra_gmsh_arguments = []
+
     preserve_geo = geo_filename is not None
     if geo_filename is None:
         with tempfile.NamedTemporaryFile(suffix='.geo') as f:
@@ -106,27 +107,35 @@ def generate_mesh(
     with open(geo_filename, 'w') as f:
         f.write(geo_object.get_code())
 
-    with tempfile.NamedTemporaryFile(suffix='.msh') as handle:
+    # Gmsh's native file format `msh` it not well suited for fast i/o. This can
+    # greatly reduce the performance of pygmsh. As a workaround, use the VTK
+    # format. Unfortunately, gmsh doesn't support physical and geometrical tags
+    # for VTK yet. <https://gitlab.onelab.info/gmsh/gmsh/issues/389>
+    if fast_conversion:
+        filetype = 'vtk'
+        suffix = '.vtk'
+    else:
+        filetype = 'msh'
+        suffix = '.msh'
+
+    with tempfile.NamedTemporaryFile(suffix=suffix) as handle:
         msh_filename = handle.name
 
     gmsh_executable = gmsh_path if gmsh_path is not None else _get_gmsh_exe()
 
-    cmd = [
-        gmsh_executable,
-        '-{}'.format(dim), '-bin', geo_filename, '-o', msh_filename
-        ]
-
-    gmsh_major_version = get_gmsh_major_version(gmsh_executable)
-    if gmsh_major_version < 3 and optimize:
-        cmd += ['-optimize']
-
-    assert geom_order > 0
-    if geom_order > 1:
-        cmd += ['-order', str(geom_order)]
+    args = [
+        '-{}'.format(dim), geo_filename,
+        # Don't use the native msh format. It's not very well suited for
+        # efficient reading as every cell has to be read individually.
+        '-format', filetype,
+        '-bin',
+        '-o', msh_filename,
+        ] + extra_gmsh_arguments
 
     # https://stackoverflow.com/a/803421/353337
     p = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        [gmsh_executable] + args,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT
         )
     if verbose:
         while True:
@@ -141,36 +150,37 @@ def generate_mesh(
 
     X, cells, pt_data, cell_data, field_data = meshio.read(msh_filename)
 
-    # Lloyd smoothing
-    if not _is_flat(X) or 'triangle' not in cells:
-        if verbose:
-            print(
-                'Not performing Lloyd smoothing '
-                '(only works for flat triangular meshes).'
-                )
-        return X, cells, pt_data, cell_data, field_data
+    if remove_faces:
+        # Only keep the cells of highest topological dimension; discard faces
+        # and such.
+        two_d_cells = set(['triangle', 'quad'])
+        three_d_cells = set([
+            'tetra', 'hexahedron', 'wedge', 'pyramid', 'penta_prism',
+            'hexa_prism'
+            ])
+        if any(k in cells for k in three_d_cells):
+            keep_keys = three_d_cells.intersection(cells.keys())
+        elif any(k in cells for k in two_d_cells):
+            keep_keys = two_d_cells.intersection(cells.keys())
+        else:
+            keep_keys = cells.keys()
 
-    if num_lloyd_steps > 0:
-        if verbose:
-            print('Lloyd smoothing...')
-
-        # Wait for meshio to return submeshes again. Till then just smoothen
-        # the mesh as a whole.
-        # a = cell_data['triangle']['geometrical']
-        # https://stackoverflow.com/q/42740483/353337
-        submesh_bools = {0: numpy.ones(len(cells['triangle']), dtype=bool)}
-
-        X, cells['triangle'] = voropy.smoothing.lloyd_submesh(
-                X, cells['triangle'], submesh_bools,
-                tol=0.0, max_steps=num_lloyd_steps,
-                verbose=False
-                )
+        cells = {key: cells[key] for key in keep_keys}
+        cell_data = {key: cell_data[key] for key in keep_keys}
 
     if prune_vertices:
-        # Make sure to include only those vertices which belong to a triangle.
-        uvertices, uidx = numpy.unique(cells['triangle'], return_inverse=True)
-        cells = {'triangle': uidx.reshape(cells['triangle'].shape)}
-        cell_data = {'triangle': cell_data['triangle']}
+        # Make sure to include only those vertices which belong to a cell.
+        ncells = numpy.concatenate([
+            numpy.concatenate(c) for c in cells.values()
+            ])
+        uvertices, uidx = numpy.unique(ncells, return_inverse=True)
+
+        k = 0
+        for key in cells.keys():
+            n = numpy.prod(cells[key].shape)
+            cells[key] = uidx[k:k+n].reshape(cells[key].shape)
+            k += n
+
         X = X[uvertices]
         for key in pt_data:
             pt_data[key] = pt_data[key][uvertices]

@@ -1,20 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-'''
-This class provides a Python interface for the Gmsh scripting language. It aims
-at working around some of Gmsh's inconveniences (e.g., having to manually
-assign an ID for every entity created) and providing access to Python's
-features.
 
-In Gmsh, the user must manually provide a unique ID for every point, curve,
-volume created. This can get messy when a lot of entities are created and it
-isn't clear which IDs are already in use. Some Gmsh commands even create new
-entities and silently reserve IDs in that way. This module tries to work around
-this by providing routines in the style of add_point(x) which _return_ the ID.
-To make variable names in Gmsh unique, keep track of how many points, circles,
-etc. have already been created. Variable names will then be p1, p2, etc. for
-points, c1, c2, etc. for circles and so on.
-'''
 import numpy
 
 from ..__about__ import __version__
@@ -254,12 +240,14 @@ class Geometry(object):
                 for k in range(num_sections)
                 ])
 
-        # Apply the transformation.
-        # TODO assert that the transformation preserves circles
         if R is not None:
-            X = [numpy.dot(R, x) + x0 for x in X]
-        else:
-            X += x0
+            assert numpy.allclose(abs(numpy.linalg.eigvals(R)),
+                                  numpy.ones(X.shape[1])), \
+                   "The transformation matrix doesn't preserve circles;" \
+                   " at least one eigenvalue lies off the unit circle."
+            X = X @ R.T
+
+        X += x0
 
         # Add Gmsh Points.
         p = [self.add_point(x, lcar) for x in X]
