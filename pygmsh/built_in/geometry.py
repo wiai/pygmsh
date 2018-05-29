@@ -505,7 +505,7 @@ class Geometry(object):
 
     def add_rectangle(
             self, xmin, xmax, ymin, ymax, z, lcar,
-            holes=None, make_surface=True,R=None
+            holes=None, make_surface=True,R=None, t=None
             ):
         return self.add_polygon([
             [xmin, ymin, z],
@@ -516,7 +516,7 @@ class Geometry(object):
             lcar,
             holes=holes,
             make_surface=make_surface,
-            R=R
+            R=R, t=t
             )
 
     class Polygon(object):
@@ -527,11 +527,14 @@ class Geometry(object):
             return
 
     def add_polygon(self, X, lcar, holes=None, make_surface=True,
-            R=None):
+            R=None, t=None):
         
         if R is not None:
             X = R @ numpy.array(X).T
             X = X.T
+        
+        if t is not None:
+            X=X+t
 
         if holes is None:
             holes = []
